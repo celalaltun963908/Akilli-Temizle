@@ -8,13 +8,13 @@ from motor import clean, mode_for
 
 class App:
     def __init__(self, root):
-        self.root=root; root.title('Akıllı Temizle v0.9 | Önizleme'); root.geometry('1100x770')
+        self.root=root; root.title('Akıllı Temizle v1.5 | Güvenli Temizleme'); root.geometry('1100x770')
         self.src=None; self.out=None; self.page=0; self.photos=[]
         bar=ttk.Frame(root,padding=12);bar.pack(fill='x')
         ttk.Button(bar,text='PDF Aç',command=self.choose).pack(side='left')
         self.mode=tk.StringVar(value='otomatik')
         ttk.Label(bar,text='  Yöntem:').pack(side='left')
-        ttk.Combobox(bar,textvariable=self.mode,values=['otomatik','nesne','goruntu'],width=12,state='readonly').pack(side='left',padx=6)
+        ttk.Combobox(bar,textvariable=self.mode,values=['otomatik','filigran'],width=12,state='readonly').pack(side='left',padx=6)
         ttk.Button(bar,text='Temizle ve Kaydet',command=self.process).pack(side='left',padx=8)
         self.status=tk.StringVar(value='Bir PDF seçin. Orijinal dosya değişmez.')
         ttk.Label(root,textvariable=self.status,padding=(12,4)).pack(anchor='w')
@@ -31,7 +31,7 @@ class App:
             canvas.pack(fill='both',expand=True,pady=6)
             canvas.bind('<Configure>',lambda _e:self.show())
             self.panels.append(canvas)
-        ttk.Label(root,text='UYARI: Görüntü temizleme açık renkli şekil ayrıntılarını silebilir. Çıktıyı sayfa sayfa kontrol edin.',foreground='#a04a00',padding=10).pack(anchor='w')
+        ttk.Label(root,text='Güvenli mod: yalnızca PDF Watermark açıklamaları kaldırılır. Diğer filigranlar değiştirilmez.',foreground='#a04a00',padding=10).pack(anchor='w')
     def choose(self):
         f=filedialog.askopenfilename(title='PDF seç',filetypes=[('PDF','*.pdf')]);
         if not f:return

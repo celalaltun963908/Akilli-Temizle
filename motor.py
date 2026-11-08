@@ -94,3 +94,59 @@ def clean(source, target, mode='otomatik'):
                 raise ValueError('Güvenli nesne temizleme kalıbı bulunamadı. Görüntü yöntemini deneyin.')
         target.parent.mkdir(parents=True, exist_ok=True)
         fd, temp_path = tempfile.mkstemp(suffix='.pdf', dir=target.parent)
+
+        os.close(fd)
+        try:
+            resultdoc.save(temp_path, garbage=4, deflate=True)
+
+            with fitz.open(temp_path) as kontrol:
+                if len(kontrol) != len(doc):
+                    raise RuntimeError("Sayfa sayısı değişti.")
+
+            os.replace(temp_path, target)
+
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+        report = {
+            "surum": "1.2",
+            "kaynak": source.name,
+            "cikti": target.name,
+            "mod": mode,
+            "sayfa": len(doc),
+            "islemler": results
+        }
+
+        target.with_suffix(".json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+
+        return report
+
+    finally:
+        if resultdoc is not None and resultdoc is not doc:
+            resultdoc.close()
+        doc.close()
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("source")
+    parser.add_argument("target")
+    parser.add_argument(
+        "--mode",
+        choices=["otomatik", "goruntu", "nesne"],
+        default="otomatik"
+    )
+
+    args = parser.parse_args()
+
+    print(json.dumps(
+        clean(args.source, args.target, args.mode),
+        ensure_ascii=False,
+        indent=2
+    ))

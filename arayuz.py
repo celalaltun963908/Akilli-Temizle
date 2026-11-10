@@ -1,14 +1,14 @@
-"""Akıllı Temizle v1.7 - local preview GUI; run with python arayuz.py."""
+"""Akıllı Temizle v1.8 - local preview GUI; run with python arayuz.py."""
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
 from PIL import Image, ImageTk
 import fitz
-from motor import clean, mode_for, diagnose
+from motor import clean, mode_for, diagnose, inspect_page, clean_selected
 
 class App:
     def __init__(self, root):
-        self.root=root; root.title('Akıllı Temizle v1.7 | Güvenli Temizleme'); root.geometry('1100x770')
+        self.root=root; root.title('Akıllı Temizle v1.8 | Güvenli Temizleme'); root.geometry('1100x770')
         self.src=None; self.out=None; self.page=0; self.photos=[]
         bar=ttk.Frame(root,padding=12);bar.pack(fill='x')
         ttk.Button(bar,text='PDF Aç',command=self.choose).pack(side='left')
@@ -18,6 +18,7 @@ class App:
         ttk.Button(bar,text='Temizle ve Kaydet',command=self.process).pack(side='left',padx=8)
         ttk.Button(bar,text='PDF Teşhisi',command=self.diagnostics).pack(side='left',padx=4)
         ttk.Button(bar,text='Toplu Temizle',command=self.batch).pack(side='left',padx=4)
+        ttk.Button(bar,text='Manuel Seçim',command=self.manual).pack(side='left',padx=4)
         self.status=tk.StringVar(value='Bir PDF seçin. Orijinal dosya değişmez.')
         ttk.Label(root,textvariable=self.status,padding=(12,4)).pack(anchor='w')
         controls=ttk.Frame(root,padding=(12,4));controls.pack(fill='x')
@@ -93,6 +94,42 @@ class App:
         self.status.set(f'Toplu işlem: {len(successes)} başarılı, {len(errors)} başarısız.')
         summary='\n'.join(successes[:8]+errors[:8])
         messagebox.showinfo('Toplu işlem sonucu',f'Başarılı: {len(successes)}\nBaşarısız: {len(errors)}\n\n{summary}')
+
+    def manual(self):
+        if not self.src:
+            messagebox.showwarning('PDF seçin', 'Önce PDF açın.'); return
+        try:
+            data = inspect_page(self.src, self.page)
+        except Exception as e:
+            messagebox.showerror('İnceleme hatası', str(e)); return
+        window = tk.Toplevel(self.root)
+        window.title(f'Manuel Watermark seçimi — Sayfa {self.page+1}')
+        window.geometry('680x410')
+        ttk.Label(window, text='Yalnızca doğrulanmış Watermark açıklamaları silinebilir.', padding=10).pack(anchor='w')
+        lb = tk.Listbox(window, selectmode='extended', width=90, height=10)
+        lb.pack(fill='both', expand=True, padx=12)
+        marks = data['watermarklar']
+        for mark in marks:
+            lb.insert('end', f"Watermark · xref={mark['xref']} · konum={mark['konum']}")
+        ttk.Label(window, text='Metin adayları (silinmez): ' + (', '.join(data['metin_adaylari']) or 'Yok'),
+                  padding=10, wraplength=630).pack(anchor='w')
+        def apply():
+            indices = lb.curselection()
+            if not indices:
+                messagebox.showwarning('Seçim yok', 'Listeden bir Watermark seçin.', parent=window); return
+            dest = filedialog.asksaveasfilename(parent=window, title='Yeni PDF kaydet',
+                      defaultextension='.pdf', initialfile=self.src.stem+'_manuel_temiz.pdf',
+                      filetypes=[('PDF', '*.pdf')])
+            if not dest: return
+            try:
+                report = clean_selected(self.src, dest, {self.page: [marks[i]['xref'] for i in indices]})
+                self.out = Path(dest); self.show()
+                self.status.set(f"Manuel temizleme: {report['silinen_filigran']} Watermark kaldırıldı.")
+                messagebox.showinfo('Tamamlandı', 'Çıktı kaydedildi. Önizlemeden kontrol edin.', parent=window)
+                window.destroy()
+            except Exception as e:
+                messagebox.showerror('İşlem başarısız', str(e), parent=window)
+        ttk.Button(window, text='Seçilen Watermark öğelerini kaldır ve farklı kaydet', command=apply).pack(pady=10)
 
     def change(self,n):
         if not self.src:return

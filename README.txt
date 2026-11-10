@@ -1,16 +1,15 @@
-AKILLI TEMIZLE v1.7 — UCRETSIZ / REKLAMSIZ
+AKILLI TEMİZLE v1.8 — Güvenli PDF Filigran Temizleme
 
 Yenilikler:
-- Pencere basliginda v1.7 surumu
-- PDF Teshisi: dosya yolu, SHA256, PyMuPDF surumu, Watermark sayisi
-- Toplu Temizle: birden fazla PDF icin ayri cikti ve JSON raporu
-- Orijinal PDF uzerine yazmaz; var olan ciktiyi de degistirmez.
+- Manuel Seçim: aktif sayfadaki gerçek PDF Watermark açıklamalarını listeler ve seçilenleri kaldırır.
+- Metin filigran adayları yalnızca bilgi amaçlı gösterilir; otomatik silinmez.
+- v1.7 otomatik Watermark temizleme, teşhis, toplu temizleme ve çift önizleme korunmuştur.
+- Orijinal PDF değiştirilmez; mevcut çıktı üzerine yazılmaz.
+- Metin ve sayfa sayısı doğrulanır; görsel içerik kullanıcı tarafından karşılaştırılmalıdır.
 
-Sinir: yalnizca PDF /Watermark aciklamalarini kaldirir.
-Diger filigran tiplerinde dosyayi degistirmez.
+Kurulum: pip install -r requirements.txt pytest
+Başlatma: python arayuz.py
+Test: python -m pytest -q tests
+Windows EXE: .github/workflows/windows-exe.yml GitHub Actions iş akışı.
 
-GitHub: motor.py, arayuz.py, requirements.txt ve tests/test_motor.py dosyalarini
-ilgili konumlara yukleyin. .github/workflows/windows-exe.yml dosyasini da
-istege bagli guncelleyin. Eski EXE kisayolu yeni surume otomatik gecmez.
-
-Windows EXE derlemesi burada yapilmadi. GitHub Actions ile olusturulabilir.
+Not: Genel sayfa metni, resim, çizim ve diğer filigran türleri bu sürümde silinmez.

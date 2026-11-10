@@ -79,3 +79,80 @@ def clean(source, target, mode='otomatik'):
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+# v1.8: inspection is read-only. Only confirmed Watermark annotations can be deleted.
+def inspect_page(source, page_number):
+    with fitz.open(source) as doc:
+        if doc.needs_pass:
+            raise ValueError('Şifreli PDF desteklenmiyor.')
+        if not 0 <= page_number < len(doc):
+            raise IndexError('Sayfa numarası geçersiz.')
+        page = doc[page_number]
+        marks = [{'xref': a.xref, 'tur': str(a.type[1]),
+                  'konum': tuple(round(float(v), 1) for v in a.rect)}
+                 for a in _watermarks(page)]
+        # Read-only candidates. Never auto-delete text or graphics.
+        words = page.get_text('words')
+        hints = ('filigran', 'watermark', 'taslak', 'örnektir', 'sample', 'draft')
+        candidates = sorted({str(w[4]) for w in words if any(h in str(w[4]).casefold() for h in hints)})
+        return {'sayfa': page_number + 1, 'watermarklar': marks,
+                'metin_adaylari': candidates,
+                'uyari': 'Metin adayları ve grafikler yalnızca inceleme amaçlıdır; silinmez.'}
+
+
+def clean_selected(source, target, selected):
+    """selected: {zero_based_page_number: [watermark_annotation_xref, ...]}"""
+    source, target = Path(source), Path(target)
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    if source.resolve() == target.resolve() or target.exists():
+        raise FileExistsError('Orijinal veya mevcut çıktı üzerine yazılamaz.')
+    report_path = target.with_suffix('.json')
+    if report_path.exists():
+        raise FileExistsError('Rapor zaten mevcut.')
+    if not selected or not any(selected.values()):
+        raise ValueError('Silinecek Watermark açıklaması seçilmedi.')
+    fd, tmp = tempfile.mkstemp(suffix='.pdf', dir=target.parent)
+    os.close(fd)
+    try:
+        with fitz.open(source) as doc:
+            if doc.needs_pass:
+                raise ValueError('Şifreli PDF desteklenmiyor.')
+            expected = [p.get_text() for p in doc]
+            counts = [0] * len(doc)
+            for page_index, xrefs in selected.items():
+                if not 0 <= int(page_index) < len(doc):
+                    raise ValueError('Sayfa numarası geçersiz.')
+                page = doc[int(page_index)]
+                available = {a.xref: a for a in _watermarks(page)}
+                for xref in set(map(int, xrefs)):
+                    if xref not in available:
+                        raise ValueError(f'Seçilen öğe Watermark değil: {xref}')
+                    page.delete_annot(available[xref]); counts[int(page_index)] += 1
+            if not any(counts):
+                raise ValueError('Silinecek öğe bulunamadı.')
+            doc.save(tmp, garbage=4, deflate=True)
+        with fitz.open(tmp) as check:
+            if len(check) != len(expected) or [p.get_text() for p in check] != expected:
+                raise RuntimeError('Metin doğrulaması başarısız.')
+            for i, xrefs in selected.items():
+                remaining = {a.xref for a in _watermarks(check[int(i)])}
+                # Rewritten xrefs may change after garbage collection; count verified below.
+                if len(_watermarks(check[int(i)])) != len(_watermarks_in_source(source, int(i))) - counts[int(i)]:
+                    raise RuntimeError('Filigran sayısı doğrulanamadı.')
+        with open(target, 'xb') as out, open(tmp, 'rb') as inp:
+            import shutil
+            shutil.copyfileobj(inp, out)
+        report = {'surum': '1.8', 'mod': 'manuel-watermark', 'sayfa': len(counts),
+                  'silinen_filigran': sum(counts), 'sayfa_bazinda': counts,
+                  'metin_korundu': True, 'uyari': 'Görsel içerik kullanıcı tarafından kontrol edilmelidir.'}
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+        return report
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def _watermarks_in_source(source, page_index):
+    with fitz.open(source) as doc:
+        return [a.xref for a in _watermarks(doc[page_index])]

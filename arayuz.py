@@ -1,4 +1,4 @@
-"""Akıllı Temizle v1.8 - local preview GUI; run with python arayuz.py."""
+"""Akıllı Temizle v1.9 - local preview GUI; run with python arayuz.py."""
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
@@ -9,7 +9,7 @@ from motor import clean, mode_for, diagnose, inspect_page, clean_selected
 class App:
     def __init__(self, root):
         self.root=root; root.title('Akıllı Temizle v1.8 | Güvenli Temizleme'); root.geometry('1100x770')
-        self.src=None; self.out=None; self.page=0; self.photos=[]
+        root.title('Akıllı Temizle v1.9 | Güvenli Temizleme')
         bar=ttk.Frame(root,padding=12);bar.pack(fill='x')
         ttk.Button(bar,text='PDF Aç',command=self.choose).pack(side='left')
         self.mode=tk.StringVar(value='otomatik')

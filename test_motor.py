@@ -46,3 +46,23 @@ def test_no_overwrite(tmp_path):
     target.write_bytes(b'existing')
     with pytest.raises(FileExistsError):
         clean(source, target)
+
+from motor import inspect_page, clean_selected
+
+def test_manual_selection(tmp_path):
+    source, target = tmp_path/'source.pdf', tmp_path/'manual.pdf'
+    make_pdf(source)
+    data = inspect_page(source, 0)
+    assert len(data['watermarklar']) == 1
+    result = clean_selected(source, target, {0: [data['watermarklar'][0]['xref']]})
+    assert result['silinen_filigran'] == 1
+    with fitz.open(target) as doc:
+        assert mode_for(doc) == 'tespit_yok'
+        assert 'Math:' in doc[0].get_text()
+
+def test_manual_reject_non_watermark(tmp_path):
+    source, target = tmp_path/'source.pdf', tmp_path/'manual.pdf'
+    make_pdf(source)
+    with pytest.raises(ValueError):
+        clean_selected(source, target, {0: [999999]})
+    assert not target.exists()

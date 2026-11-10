@@ -94,10 +94,12 @@ def clean(source, target, mode='otomatik'):
                 raise ValueError('Watermark açıklaması bulunamadı. PDF değiştirilmedi. '
                                  f"PyMuPDF={details['pymupdf']}, SHA256={details['sha256'][:16]}..., "
                                  f"dosya={details['dosya']}")
-            expected = _snapshot(doc)
             for page in doc:
                 for mark in _watermarks(page):
                     page.delete_annot(mark)
+            # Compare the saved PDF against the post-removal document state.
+            # Annotation text may legitimately disappear when a watermark is removed.
+            expected = _snapshot(doc)
             doc.save(tmp, garbage=4, deflate=True)
         with fitz.open(tmp) as check:
             _verify_text(check, expected)
@@ -105,8 +107,8 @@ def clean(source, target, mode='otomatik'):
                 raise RuntimeError('Watermark açıklaması kaldı; çıktı oluşturulmadı.')
         report = {'surum': '1.9', 'mod': 'filigran', 'sayfa': len(counts),
                   'silinen_filigran': sum(counts), 'sayfa_bazinda': counts,
-                  'metin_korundu': True,
-                  'uyari': 'Metin eşitliği doğrulandı; görseller ayrıca kontrol edilmelidir.'}
+                  'kayit_sonrasi_metin_dogrulandi': True,
+                  'uyari': 'Filigran silindikten sonraki metin kaydedilen PDF ile karşılaştırıldı; orijinal sayfa içeriğinin ve görsellerin korunması ayrıca kontrol edilmelidir.'}
         _write_output(tmp, target, report_path, report)
         return report
     finally:
@@ -144,7 +146,6 @@ def clean_selected(source, target, selected):
         with fitz.open(source) as doc:
             if doc.needs_pass:
                 raise ValueError('Şifreli PDF desteklenmiyor.')
-            expected = _snapshot(doc)
             before_counts = [len(_watermarks(p)) for p in doc]
             counts = [0] * len(doc)
             for page_index, xrefs in selected.items():
@@ -160,6 +161,7 @@ def clean_selected(source, target, selected):
                     counts[index] += 1
             if not any(counts):
                 raise ValueError('Silinecek öğe bulunamadı.')
+            expected = _snapshot(doc)
             doc.save(tmp, garbage=4, deflate=True)
         with fitz.open(tmp) as check:
             _verify_text(check, expected)
@@ -172,8 +174,8 @@ def clean_selected(source, target, selected):
                         f'beklenen={expected_count}, bulunan={actual_count}.')
         report = {'surum': '1.9', 'mod': 'manuel-watermark', 'sayfa': len(counts),
                   'silinen_filigran': sum(counts), 'sayfa_bazinda': counts,
-                  'metin_korundu': True,
-                  'uyari': 'Metin eşitliği doğrulandı; görseller ayrıca kontrol edilmelidir.'}
+                  'kayit_sonrasi_metin_dogrulandi': True,
+                  'uyari': 'Filigran silindikten sonraki metin kaydedilen PDF ile karşılaştırıldı; orijinal sayfa içeriğinin ve görsellerin korunması ayrıca kontrol edilmelidir.'}
         _write_output(tmp, target, report_path, report)
         return report
     finally:

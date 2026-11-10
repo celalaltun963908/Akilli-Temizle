@@ -1,14 +1,14 @@
-"""Akıllı Temizle v0.9 - local preview GUI; run with python arayuz.py."""
+"""Akıllı Temizle v1.7 - local preview GUI; run with python arayuz.py."""
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
 from PIL import Image, ImageTk
 import fitz
-from motor import clean, mode_for
+from motor import clean, mode_for, diagnose
 
 class App:
     def __init__(self, root):
-        self.root=root; root.title('Akıllı Temizle v1.5 | Güvenli Temizleme'); root.geometry('1100x770')
+        self.root=root; root.title('Akıllı Temizle v1.7 | Güvenli Temizleme'); root.geometry('1100x770')
         self.src=None; self.out=None; self.page=0; self.photos=[]
         bar=ttk.Frame(root,padding=12);bar.pack(fill='x')
         ttk.Button(bar,text='PDF Aç',command=self.choose).pack(side='left')
@@ -16,6 +16,8 @@ class App:
         ttk.Label(bar,text='  Yöntem:').pack(side='left')
         ttk.Combobox(bar,textvariable=self.mode,values=['otomatik','filigran'],width=12,state='readonly').pack(side='left',padx=6)
         ttk.Button(bar,text='Temizle ve Kaydet',command=self.process).pack(side='left',padx=8)
+        ttk.Button(bar,text='PDF Teşhisi',command=self.diagnostics).pack(side='left',padx=4)
+        ttk.Button(bar,text='Toplu Temizle',command=self.batch).pack(side='left',padx=4)
         self.status=tk.StringVar(value='Bir PDF seçin. Orijinal dosya değişmez.')
         ttk.Label(root,textvariable=self.status,padding=(12,4)).pack(anchor='w')
         controls=ttk.Frame(root,padding=(12,4));controls.pack(fill='x')
@@ -55,6 +57,43 @@ class App:
             messagebox.showinfo('İşlem tamamlandı','Çıktı oluşturuldu. İki görünümü sayfa sayfa karşılaştırın.\nAyrıca JSON işlem raporu kaydedildi.')
         except Exception as e:messagebox.showerror('İşlem yapılamadı',str(e))
         finally:self.root.config(cursor='')
+    def diagnostics(self):
+        if not self.src:
+            messagebox.showwarning('PDF seçin','Önce PDF açın.'); return
+        try:
+            import json
+            info=diagnose(self.src)
+            messagebox.showinfo('PDF Teşhisi',
+                f"Dosya: {info['dosya']}\nPyMuPDF: {info['pymupdf']}\n"
+                f"Sayfa: {info['sayfa']}\nWatermark: {info['watermark_sayisi']}\n"
+                f"SHA256: {info['sha256']}")
+        except Exception as e: messagebox.showerror('Teşhis hatası',str(e))
+
+    def batch(self):
+        paths=filedialog.askopenfilenames(title='Toplu temizlenecek PDF dosyalarını seçin',filetypes=[('PDF','*.pdf')])
+        if not paths: return
+        folder=filedialog.askdirectory(title='Çıktıların kaydedileceği klasörü seçin')
+        if not folder: return
+        output_dir=Path(folder)
+        successes=[]; errors=[]
+        self.root.config(cursor='watch')
+        try:
+            for index, src in enumerate(paths,1):
+                src=Path(src)
+                self.status.set(f'Toplu işlem {index}/{len(paths)}: {src.name}')
+                self.root.update_idletasks()
+                dest=output_dir/(src.stem+'_temizlenmis.pdf')
+                try:
+                    result=clean(src,dest,'otomatik')
+                    successes.append(f"{src.name}: {result['silinen_filigran']} filigran")
+                except Exception as e:
+                    errors.append(f'{src.name}: {e}')
+        finally:
+            self.root.config(cursor='')
+        self.status.set(f'Toplu işlem: {len(successes)} başarılı, {len(errors)} başarısız.')
+        summary='\n'.join(successes[:8]+errors[:8])
+        messagebox.showinfo('Toplu işlem sonucu',f'Başarılı: {len(successes)}\nBaşarısız: {len(errors)}\n\n{summary}')
+
     def change(self,n):
         if not self.src:return
         with fitz.open(self.src) as d:self.page=max(0,min(len(d)-1,self.page+n))

@@ -1,4 +1,4 @@
-"""Akıllı Temizle v1.6: PDF Watermark annotation removal and diagnostics."""
+"""Akıllı Temizle v1.7: PDF Watermark annotation removal and diagnostics."""
 from pathlib import Path
 import hashlib
 import json
@@ -66,8 +66,11 @@ def clean(source, target, mode='otomatik'):
                 raise RuntimeError('Metin veya sayfa doğrulaması başarısız.')
             if any(_watermarks(p) for p in check):
                 raise RuntimeError('Watermark açıklaması kaldı.')
-        os.replace(tmp, target)
-        report = {'surum': '1.6', 'mod': 'filigran', 'sayfa': len(counts),
+        # Create the output exclusively; never replace an existing PDF.
+        with open(target, 'xb') as dest, open(tmp, 'rb') as src:
+            import shutil
+            shutil.copyfileobj(src, dest)
+        report = {'surum': '1.7', 'mod': 'filigran', 'sayfa': len(counts),
                   'silinen_filigran': sum(counts), 'sayfa_bazinda': counts,
                   'metin_korundu': True,
                   'uyari': 'Görsel içerik ayrıca kontrol edilmelidir.'}

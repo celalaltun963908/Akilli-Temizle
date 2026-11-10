@@ -1,14 +1,14 @@
-"""Akıllı Temizle v1.7: PDF Watermark annotation removal and diagnostics."""
+"""Akıllı Temizle v1.9 — güvenli PDF Watermark açıklaması temizleme."""
 from pathlib import Path
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 import fitz
 
 
 def _watermarks(page):
-    # PDF annotation subtype 25 is Watermark in PyMuPDF.
     return [a for a in (page.annots() or [])
             if a.type[0] == 25 or str(a.type[1]).casefold() == 'watermark']
 
@@ -23,64 +23,97 @@ def diagnose(source):
         counts = [len(_watermarks(p)) for p in doc]
         return {'dosya': str(source.resolve()),
                 'sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
-                'pymupdf': fitz.VersionBind,
-                'sayfa': len(doc),
-                'watermark_sayisi': sum(counts),
-                'sayfa_bazinda': counts,
+                'pymupdf': fitz.VersionBind, 'sayfa': len(doc),
+                'watermark_sayisi': sum(counts), 'sayfa_bazinda': counts,
                 'algilanan_yontem': 'filigran' if any(counts) else 'tespit_yok'}
 
 
-def clean(source, target, mode='otomatik'):
+def _check_paths(source, target):
     source, target = Path(source), Path(target)
     if not source.is_file():
         raise FileNotFoundError(source)
     if source.resolve() == target.resolve() or target.exists():
-        raise FileExistsError('Orijinal dosya veya mevcut çıktı üzerine yazılamaz.')
-    if mode not in ('otomatik', 'filigran'):
-        raise ValueError('Yalnızca PDF Watermark açıklamaları desteklenir.')
+        raise FileExistsError('Orijinal veya mevcut çıktı üzerine yazılamaz.')
     report_path = target.with_suffix('.json')
     if report_path.exists():
         raise FileExistsError('Rapor zaten mevcut: ' + str(report_path))
     target.parent.mkdir(parents=True, exist_ok=True)
+    return source, target, report_path
+
+
+def _snapshot(doc):
+    return [p.get_text() for p in doc]
+
+
+def _verify_text(check, expected):
+    if len(check) != len(expected):
+        raise RuntimeError(f'Sayfa sayısı değişti: {len(expected)} -> {len(check)}.')
+    for i, page in enumerate(check):
+        actual = page.get_text()
+        if actual != expected[i]:
+            import difflib
+            matcher = difflib.SequenceMatcher(None, expected[i], actual, autojunk=False)
+            op, a, b, c, d = next((x for x in matcher.get_opcodes() if x[0] != 'equal'),
+                                   ('equal', 0, 0, 0, 0))
+            left = expected[i][max(0, a-35):min(len(expected[i]), b+35)]
+            right = actual[max(0, c-35):min(len(actual), d+35)]
+            raise RuntimeError(
+                f'Metin doğrulaması başarısız: sayfa {i+1}, fark türü {op}; '
+                f'önce={left!r}; sonra={right!r}. '
+                'Çıktı oluşturulmadı. Bu farkın zararsız olduğu varsayılmadı.')
+
+
+def _write_output(tmp, target, report_path, report):
+    # Existing target is never overwritten; failure also removes a partial output.
+    created = False
+    try:
+        with open(target, 'xb') as out, open(tmp, 'rb') as inp:
+            created = True
+            shutil.copyfileobj(inp, out)
+        with open(report_path, 'x', encoding='utf-8') as out:
+            json.dump(report, out, ensure_ascii=False, indent=2)
+    except Exception:
+        if created:
+            target.unlink(missing_ok=True)
+        raise
+
+
+def clean(source, target, mode='otomatik'):
+    source, target, report_path = _check_paths(source, target)
+    if mode not in ('otomatik', 'filigran'):
+        raise ValueError('Yalnızca PDF Watermark açıklamaları desteklenir.')
     fd, tmp = tempfile.mkstemp(suffix='.pdf', dir=target.parent)
     os.close(fd)
     try:
         with fitz.open(source) as doc:
             if doc.needs_pass:
                 raise ValueError('Şifreli PDF desteklenmiyor.')
-            counts = []
-            for page in doc:
-                marks = _watermarks(page)
-                counts.append(len(marks))
-                for mark in marks:
-                    page.delete_annot(mark)
+            counts = [len(_watermarks(p)) for p in doc]
             if not any(counts):
                 details = diagnose(source)
                 raise ValueError('Watermark açıklaması bulunamadı. PDF değiştirilmedi. '
                                  f"PyMuPDF={details['pymupdf']}, SHA256={details['sha256'][:16]}..., "
                                  f"dosya={details['dosya']}")
-            expected_text = [p.get_text() for p in doc]
+            expected = _snapshot(doc)
+            for page in doc:
+                for mark in _watermarks(page):
+                    page.delete_annot(mark)
             doc.save(tmp, garbage=4, deflate=True)
         with fitz.open(tmp) as check:
-            if len(check) != len(expected_text) or any(p.get_text() != t for p, t in zip(check, expected_text)):
-                raise RuntimeError('Metin veya sayfa doğrulaması başarısız.')
+            _verify_text(check, expected)
             if any(_watermarks(p) for p in check):
-                raise RuntimeError('Watermark açıklaması kaldı.')
-        # Create the output exclusively; never replace an existing PDF.
-        with open(target, 'xb') as dest, open(tmp, 'rb') as src:
-            import shutil
-            shutil.copyfileobj(src, dest)
-        report = {'surum': '1.7', 'mod': 'filigran', 'sayfa': len(counts),
+                raise RuntimeError('Watermark açıklaması kaldı; çıktı oluşturulmadı.')
+        report = {'surum': '1.9', 'mod': 'filigran', 'sayfa': len(counts),
                   'silinen_filigran': sum(counts), 'sayfa_bazinda': counts,
                   'metin_korundu': True,
-                  'uyari': 'Görsel içerik ayrıca kontrol edilmelidir.'}
-        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+                  'uyari': 'Metin eşitliği doğrulandı; görseller ayrıca kontrol edilmelidir.'}
+        _write_output(tmp, target, report_path, report)
         return report
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
 
-# v1.8: inspection is read-only. Only confirmed Watermark annotations can be deleted.
+
 def inspect_page(source, page_number):
     with fitz.open(source) as doc:
         if doc.needs_pass:
@@ -91,10 +124,10 @@ def inspect_page(source, page_number):
         marks = [{'xref': a.xref, 'tur': str(a.type[1]),
                   'konum': tuple(round(float(v), 1) for v in a.rect)}
                  for a in _watermarks(page)]
-        # Read-only candidates. Never auto-delete text or graphics.
         words = page.get_text('words')
         hints = ('filigran', 'watermark', 'taslak', 'örnektir', 'sample', 'draft')
-        candidates = sorted({str(w[4]) for w in words if any(h in str(w[4]).casefold() for h in hints)})
+        candidates = sorted({str(w[4]) for w in words
+                             if any(h in str(w[4]).casefold() for h in hints)})
         return {'sayfa': page_number + 1, 'watermarklar': marks,
                 'metin_adaylari': candidates,
                 'uyari': 'Metin adayları ve grafikler yalnızca inceleme amaçlıdır; silinmez.'}
@@ -102,14 +135,7 @@ def inspect_page(source, page_number):
 
 def clean_selected(source, target, selected):
     """selected: {zero_based_page_number: [watermark_annotation_xref, ...]}"""
-    source, target = Path(source), Path(target)
-    if not source.is_file():
-        raise FileNotFoundError(source)
-    if source.resolve() == target.resolve() or target.exists():
-        raise FileExistsError('Orijinal veya mevcut çıktı üzerine yazılamaz.')
-    report_path = target.with_suffix('.json')
-    if report_path.exists():
-        raise FileExistsError('Rapor zaten mevcut.')
+    source, target, report_path = _check_paths(source, target)
     if not selected or not any(selected.values()):
         raise ValueError('Silinecek Watermark açıklaması seçilmedi.')
     fd, tmp = tempfile.mkstemp(suffix='.pdf', dir=target.parent)
@@ -118,35 +144,37 @@ def clean_selected(source, target, selected):
         with fitz.open(source) as doc:
             if doc.needs_pass:
                 raise ValueError('Şifreli PDF desteklenmiyor.')
-            expected = [p.get_text() for p in doc]
+            expected = _snapshot(doc)
+            before_counts = [len(_watermarks(p)) for p in doc]
             counts = [0] * len(doc)
             for page_index, xrefs in selected.items():
-                if not 0 <= int(page_index) < len(doc):
+                index = int(page_index)
+                if not 0 <= index < len(doc):
                     raise ValueError('Sayfa numarası geçersiz.')
-                page = doc[int(page_index)]
+                page = doc[index]
                 available = {a.xref: a for a in _watermarks(page)}
                 for xref in set(map(int, xrefs)):
                     if xref not in available:
                         raise ValueError(f'Seçilen öğe Watermark değil: {xref}')
-                    page.delete_annot(available[xref]); counts[int(page_index)] += 1
+                    page.delete_annot(available[xref])
+                    counts[index] += 1
             if not any(counts):
                 raise ValueError('Silinecek öğe bulunamadı.')
             doc.save(tmp, garbage=4, deflate=True)
         with fitz.open(tmp) as check:
-            if len(check) != len(expected) or [p.get_text() for p in check] != expected:
-                raise RuntimeError('Metin doğrulaması başarısız.')
-            for i, xrefs in selected.items():
-                remaining = {a.xref for a in _watermarks(check[int(i)])}
-                # Rewritten xrefs may change after garbage collection; count verified below.
-                if len(_watermarks(check[int(i)])) != len(_watermarks_in_source(source, int(i))) - counts[int(i)]:
-                    raise RuntimeError('Filigran sayısı doğrulanamadı.')
-        with open(target, 'xb') as out, open(tmp, 'rb') as inp:
-            import shutil
-            shutil.copyfileobj(inp, out)
-        report = {'surum': '1.8', 'mod': 'manuel-watermark', 'sayfa': len(counts),
+            _verify_text(check, expected)
+            for i, page in enumerate(check):
+                actual_count = len(_watermarks(page))
+                expected_count = before_counts[i] - counts[i]
+                if actual_count != expected_count:
+                    raise RuntimeError(
+                        f'Filigran sayısı doğrulanamadı: sayfa {i+1}; '
+                        f'beklenen={expected_count}, bulunan={actual_count}.')
+        report = {'surum': '1.9', 'mod': 'manuel-watermark', 'sayfa': len(counts),
                   'silinen_filigran': sum(counts), 'sayfa_bazinda': counts,
-                  'metin_korundu': True, 'uyari': 'Görsel içerik kullanıcı tarafından kontrol edilmelidir.'}
-        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+                  'metin_korundu': True,
+                  'uyari': 'Metin eşitliği doğrulandı; görseller ayrıca kontrol edilmelidir.'}
+        _write_output(tmp, target, report_path, report)
         return report
     finally:
         if os.path.exists(tmp):

@@ -1,4 +1,4 @@
-"""Akıllı Temizle V2.0 arayüzü — V1.9 güvenli Watermark motoru."""
+"""Akıllı Temizle V2.1 renkli arayüzü — V1.9 güvenli Watermark motoru."""
 import json
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -15,30 +15,31 @@ class App:
         self.out = None
         self.page = 0
         self.photos = []
-        root.title('Akıllı Temizle V2.0 | Güvenli PDF Temizleme')
+        root.title('Akıllı Temizle V2.1 | Güvenli PDF Temizleme')
         root.geometry('1180x780')
-        root.minsize(850, 560)
+        root.minsize(1000, 560)
+        root.configure(bg='#f3f6fc')
 
         bar = ttk.Frame(root, padding=12)
         bar.pack(fill='x')
-        ttk.Button(bar, text='PDF Aç', command=self.choose).pack(side='left')
+        self.color_button(bar, '📂 PDF Aç', self.choose, '#1769E0').pack(side='left')
         self.mode = tk.StringVar(value='otomatik')
         ttk.Label(bar, text='  Yöntem:').pack(side='left')
         ttk.Combobox(bar, textvariable=self.mode, values=['otomatik', 'filigran'],
                      width=12, state='readonly').pack(side='left', padx=6)
-        ttk.Button(bar, text='Temizle ve Kaydet', command=self.process).pack(side='left', padx=8)
-        ttk.Button(bar, text='PDF Teşhisi', command=self.diagnostics).pack(side='left', padx=4)
-        ttk.Button(bar, text='Toplu Temizle', command=self.batch).pack(side='left', padx=4)
-        ttk.Button(bar, text='Manuel Seçim', command=self.manual).pack(side='left', padx=4)
+        self.color_button(bar, '✓ Temizle ve Kaydet', self.process, '#079568').pack(side='left', padx=8)
+        self.color_button(bar, 'PDF Teşhisi', self.diagnostics, '#7048D8').pack(side='left', padx=4)
+        self.color_button(bar, 'Toplu Temizle', self.batch, '#D86B15').pack(side='left', padx=4)
+        self.color_button(bar, 'Manuel Seçim', self.manual, '#C43870').pack(side='left', padx=4)
 
         self.status = tk.StringVar(value='Bir PDF seçin. Orijinal dosya değiştirilmez.')
         ttk.Label(root, textvariable=self.status, padding=(12, 4)).pack(anchor='w')
         controls = ttk.Frame(root, padding=(12, 4))
         controls.pack(fill='x')
-        ttk.Button(controls, text='◀ Önceki', command=lambda: self.change(-1)).pack(side='left')
+        self.color_button(controls, '◀ Önceki', lambda: self.change(-1), '#455A78').pack(side='left')
         self.pg = ttk.Label(controls, text='Sayfa: —')
         self.pg.pack(side='left', padx=16)
-        ttk.Button(controls, text='Sonraki ▶', command=lambda: self.change(1)).pack(side='left')
+        self.color_button(controls, 'Sonraki ▶', lambda: self.change(1), '#455A78').pack(side='left')
 
         frame = ttk.Frame(root, padding=10)
         frame.pack(fill='both', expand=True)
@@ -54,6 +55,15 @@ class App:
         ttk.Label(root, text=('Güvenli mod: Yalnızca PDF Watermark açıklamaları kaldırılır. '
                               'Diğer filigran türleri değiştirilmez.'),
                   foreground='#a04a00', padding=10).pack(anchor='w')
+
+    @staticmethod
+    def color_button(parent, text, command, color):
+        """Windows üzerinde de gerçek arka plan rengi gösteren Tk düğmesi."""
+        return tk.Button(
+            parent, text=text, command=command, bg=color, fg='white',
+            activebackground=color, activeforeground='white',
+            font=('Segoe UI', 10, 'bold'), relief='flat', bd=0,
+            padx=12, pady=9, cursor='hand2', highlightthickness=0)
 
     def choose(self):
         filename = filedialog.askopenfilename(title='PDF seç', filetypes=[('PDF', '*.pdf')])

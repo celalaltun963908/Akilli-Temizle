@@ -1,3 +1,4 @@
+
 """Akıllı Temizle V2.4 — güvenli PDF Watermark açıklaması temizleme."""
 from pathlib import Path
 import hashlib

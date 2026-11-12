@@ -1,4 +1,4 @@
-"""Akıllı Temizle V2.4 — yakınlaştırma, kaydırma ve güvenli alan seçimi."""
+"""Akıllı Temizle V2.5 — yakınlaştırma, kaydırma ve güvenli alan seçimi."""
 import json
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -21,7 +21,7 @@ class App:
         self.selection_rectangle = None
         self.pan_start = None
         self.pan_offset = [0, 0]
-        root.title('Akıllı Temizle V2.4 | Güvenli PDF Temizleme')
+        root.title('Akıllı Temizle V2.5 | Güvenli PDF Temizleme')
         root.geometry('1180x780')
         root.minsize(1000, 560)
         root.configure(bg='#f3f6fc')

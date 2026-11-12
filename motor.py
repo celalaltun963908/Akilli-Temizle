@@ -1,4 +1,4 @@
-"""Akıllı Temizle v1.9 — güvenli PDF Watermark açıklaması temizleme."""
+"""Akıllı Temizle V2.4 — güvenli PDF Watermark açıklaması temizleme."""
 from pathlib import Path
 import hashlib
 import json
@@ -25,7 +25,10 @@ def diagnose(source):
                 'sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
                 'pymupdf': fitz.VersionBind, 'sayfa': len(doc),
                 'watermark_sayisi': sum(counts), 'sayfa_bazinda': counts,
-                'algilanan_yontem': 'filigran' if any(counts) else 'tespit_yok'}
+                'algilanan_yontem': 'filigran' if any(counts) else 'tespit_yok',
+                'goruntu_sayisi': sum(len(p.get_images(full=True)) for p in doc),
+                'cizim_sayisi': sum(len(p.get_drawings()) for p in doc),
+                'uyari': 'Görüntü ve çizimler incelenir; gömülü filigranlar otomatik silinmez.'}
 
 
 def _check_paths(source, target):
@@ -43,6 +46,18 @@ def _check_paths(source, target):
 
 def _snapshot(doc):
     return [p.get_text() for p in doc]
+
+
+def _visual_snapshot(doc):
+    """Watermark açıklaması dışındaki görüntü ve çizim yapılarını sayar."""
+    return [(tuple(round(float(x), 3) for x in p.rect),
+             len(p.get_images(full=True)), len(p.get_drawings())) for p in doc]
+
+
+def _verify_visual(check, expected):
+    actual = _visual_snapshot(check)
+    if actual != expected:
+        raise RuntimeError('Görsel yapı doğrulaması başarısız. Çıktı oluşturulmadı.')
 
 
 def _verify_text(check, expected):
@@ -100,15 +115,18 @@ def clean(source, target, mode='otomatik'):
             # Compare the saved PDF against the post-removal document state.
             # Annotation text may legitimately disappear when a watermark is removed.
             expected = _snapshot(doc)
+            expected_visual = _visual_snapshot(doc)
             doc.save(tmp, garbage=4, deflate=True)
         with fitz.open(tmp) as check:
             _verify_text(check, expected)
+            _verify_visual(check, expected_visual)
             if any(_watermarks(p) for p in check):
                 raise RuntimeError('Watermark açıklaması kaldı; çıktı oluşturulmadı.')
-        report = {'surum': '1.9', 'mod': 'filigran', 'sayfa': len(counts),
+        report = {'surum': '2.4', 'mod': 'filigran', 'sayfa': len(counts),
                   'silinen_filigran': sum(counts), 'sayfa_bazinda': counts,
                   'kayit_sonrasi_metin_dogrulandi': True,
-                  'uyari': 'Filigran silindikten sonraki metin kaydedilen PDF ile karşılaştırıldı; orijinal sayfa içeriğinin ve görsellerin korunması ayrıca kontrol edilmelidir.'}
+                  'kayit_sonrasi_gorsel_yapi_dogrulandi': True,
+                  'uyari': 'Filigran silindikten sonraki metin kaydedilen PDF ile karşılaştırıldı; görsel yapının sayısal kontrolü yapılmıştır; sayfalar yine de gözle karşılaştırılmalıdır.'}
         _write_output(tmp, target, report_path, report)
         return report
     finally:
@@ -162,9 +180,11 @@ def clean_selected(source, target, selected):
             if not any(counts):
                 raise ValueError('Silinecek öğe bulunamadı.')
             expected = _snapshot(doc)
+            expected_visual = _visual_snapshot(doc)
             doc.save(tmp, garbage=4, deflate=True)
         with fitz.open(tmp) as check:
             _verify_text(check, expected)
+            _verify_visual(check, expected_visual)
             for i, page in enumerate(check):
                 actual_count = len(_watermarks(page))
                 expected_count = before_counts[i] - counts[i]
@@ -172,10 +192,11 @@ def clean_selected(source, target, selected):
                     raise RuntimeError(
                         f'Filigran sayısı doğrulanamadı: sayfa {i+1}; '
                         f'beklenen={expected_count}, bulunan={actual_count}.')
-        report = {'surum': '1.9', 'mod': 'manuel-watermark', 'sayfa': len(counts),
+        report = {'surum': '2.4', 'mod': 'manuel-watermark', 'sayfa': len(counts),
                   'silinen_filigran': sum(counts), 'sayfa_bazinda': counts,
                   'kayit_sonrasi_metin_dogrulandi': True,
-                  'uyari': 'Filigran silindikten sonraki metin kaydedilen PDF ile karşılaştırıldı; orijinal sayfa içeriğinin ve görsellerin korunması ayrıca kontrol edilmelidir.'}
+                  'kayit_sonrasi_gorsel_yapi_dogrulandi': True,
+                  'uyari': 'Filigran silindikten sonraki metin kaydedilen PDF ile karşılaştırıldı; görsel yapının sayısal kontrolü yapılmıştır; sayfalar yine de gözle karşılaştırılmalıdır.'}
         _write_output(tmp, target, report_path, report)
         return report
     finally:

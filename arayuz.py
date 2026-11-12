@@ -1,4 +1,4 @@
-"""Akıllı Temizle V2.3 — yakınlaştırma, kaydırma ve güvenli alan seçimi."""
+"""Akıllı Temizle V2.4 — yakınlaştırma, kaydırma ve güvenli alan seçimi."""
 import json
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -21,7 +21,7 @@ class App:
         self.selection_rectangle = None
         self.pan_start = None
         self.pan_offset = [0, 0]
-        root.title('Akıllı Temizle V2.3 | Güvenli PDF Temizleme')
+        root.title('Akıllı Temizle V2.4 | Güvenli PDF Temizleme')
         root.geometry('1180x780')
         root.minsize(1000, 560)
         root.configure(bg='#f3f6fc')
@@ -134,7 +134,8 @@ class App:
             messagebox.showinfo('PDF Teşhisi',
                                 f"Dosya: {info['dosya']}\nPyMuPDF: {info['pymupdf']}\n"
                                 f"Sayfa: {info['sayfa']}\nWatermark: {info['watermark_sayisi']}\n"
-                                f"SHA256: {info['sha256']}")
+                                f"Görüntü: {info['goruntu_sayisi']}\nÇizim: {info['cizim_sayisi']}\n"
+                                 f"SHA256: {info['sha256']}\n\n{info['uyari']}")
         except Exception as exc:
             messagebox.showerror('Teşhis hatası', str(exc))
 

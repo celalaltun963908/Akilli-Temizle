@@ -1,4 +1,4 @@
-"""Akıllı Temizle V2.1 renkli arayüzü — V1.9 güvenli Watermark motoru."""
+"""Akıllı Temizle V2.2 — yakınlaştırma ve güvenli alan seçimi."""
 import json
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -15,7 +15,11 @@ class App:
         self.out = None
         self.page = 0
         self.photos = []
-        root.title('Akıllı Temizle V2.1 | Güvenli PDF Temizleme')
+        self.zoom = 1.0
+        self.render_info = None
+        self.drag_start = None
+        self.selection_rectangle = None
+        root.title('Akıllı Temizle V2.2 | Güvenli PDF Temizleme')
         root.geometry('1180x780')
         root.minsize(1000, 560)
         root.configure(bg='#f3f6fc')
@@ -40,6 +44,13 @@ class App:
         self.pg = ttk.Label(controls, text='Sayfa: —')
         self.pg.pack(side='left', padx=16)
         self.color_button(controls, 'Sonraki ▶', lambda: self.change(1), '#455A78').pack(side='left')
+        self.color_button(controls, '− Uzaklaştır', lambda: self.set_zoom(-0.25), '#566B85').pack(side='left', padx=(20, 4))
+        self.zoom_label = ttk.Label(controls, text='%100')
+        self.zoom_label.pack(side='left', padx=6)
+        self.color_button(controls, '+ Yakınlaştır', lambda: self.set_zoom(0.25), '#1769E0').pack(side='left', padx=4)
+        self.color_button(controls, 'Ekrana Sığdır', self.reset_zoom, '#455A78').pack(side='left', padx=4)
+        self.select_mode = tk.BooleanVar(value=False)
+        ttk.Checkbutton(controls, text='Fareyle Watermark seç', variable=self.select_mode).pack(side='left', padx=12)
 
         frame = ttk.Frame(root, padding=10)
         frame.pack(fill='both', expand=True)
@@ -52,6 +63,10 @@ class App:
             canvas.pack(fill='both', expand=True, pady=6)
             canvas.bind('<Configure>', lambda _event: self.show())
             self.panels.append(canvas)
+        original = self.panels[0]
+        original.bind('<ButtonPress-1>', self.start_selection)
+        original.bind('<B1-Motion>', self.drag_selection)
+        original.bind('<ButtonRelease-1>', self.end_selection)
         ttk.Label(root, text=('Güvenli mod: Yalnızca PDF Watermark açıklamaları kaldırılır. '
                               'Diğer filigran türleri değiştirilmez.'),
                   foreground='#a04a00', padding=10).pack(anchor='w')
@@ -191,6 +206,76 @@ class App:
         ttk.Button(window, text='Seçilen Watermark öğelerini kaldır ve farklı kaydet',
                    command=apply).pack(pady=10)
 
+    def set_zoom(self, amount):
+        self.zoom = max(0.5, min(3.0, round(self.zoom + amount, 2)))
+        self.zoom_label.config(text=f'%{round(self.zoom * 100)}')
+        self.show()
+
+    def reset_zoom(self):
+        self.zoom = 1.0
+        self.zoom_label.config(text='%100')
+        self.show()
+
+    def start_selection(self, event):
+        if not self.select_mode.get() or self.src is None:
+            return
+        self.drag_start = (event.x, event.y)
+        canvas = self.panels[0]
+        if self.selection_rectangle is not None:
+            canvas.delete(self.selection_rectangle)
+        self.selection_rectangle = canvas.create_rectangle(
+            event.x, event.y, event.x, event.y, outline='#E03535', width=2, dash=(5, 3))
+
+    def drag_selection(self, event):
+        if self.drag_start is None or self.selection_rectangle is None:
+            return
+        x, y = self.drag_start
+        self.panels[0].coords(self.selection_rectangle, x, y, event.x, event.y)
+
+    def end_selection(self, event):
+        if self.drag_start is None:
+            return
+        x0, y0 = self.drag_start
+        self.drag_start = None
+        if self.selection_rectangle is not None:
+            self.panels[0].delete(self.selection_rectangle)
+            self.selection_rectangle = None
+        info = self.render_info
+        if not info or abs(event.x - x0) < 5 or abs(event.y - y0) < 5:
+            return
+        ox, oy, scale = info
+        region = fitz.Rect((min(x0, event.x)-ox)/scale,
+                           (min(y0, event.y)-oy)/scale,
+                           (max(x0, event.x)-ox)/scale,
+                           (max(y0, event.y)-oy)/scale)
+        try:
+            data = inspect_page(self.src, self.page)
+            matches = [m for m in data['watermarklar']
+                       if fitz.Rect(m['konum']).intersects(region)]
+            if not matches:
+                messagebox.showinfo('Watermark bulunamadı',
+                                    'Seçilen alanda doğrulanmış PDF Watermark açıklaması yok. Hiçbir içerik silinmedi.')
+                return
+            if not messagebox.askyesno('Seçimi onaylayın',
+                    f'{len(matches)} doğrulanmış Watermark açıklaması bulundu.\\n'
+                    'Yalnızca bu açıklamalar kaldırılsın mı?'):
+                return
+            dest = filedialog.asksaveasfilename(
+                title='Seçilen Watermark öğelerini farklı kaydet',
+                defaultextension='.pdf',
+                initialfile=self.src.stem + '_secim_temiz.pdf',
+                filetypes=[('PDF', '*.pdf')])
+            if not dest:
+                return
+            report = clean_selected(
+                self.src, Path(dest), {self.page: [m['xref'] for m in matches]})
+            self.out = Path(dest)
+            self.status.set(f"Alan seçimi: {report['silinen_filigran']} Watermark kaldırıldı.")
+            self.show()
+            messagebox.showinfo('Tamamlandı', 'Yeni PDF kaydedildi. Orijinal dosya korunmuştur.')
+        except Exception as exc:
+            messagebox.showerror('Seçim hatası', str(exc))
+
     def change(self, amount):
         if self.src is None:
             return
@@ -205,6 +290,7 @@ class App:
             with fitz.open(self.src) as doc:
                 self.pg.config(text=f'Sayfa {self.page + 1} / {len(doc)}')
             self.photos = []
+            self.render_info = None
             for canvas, path in zip(self.panels, (self.src, self.out)):
                 canvas.delete('all')
                 if path is None:
@@ -215,13 +301,16 @@ class App:
                     page = doc[self.page]
                     cw = max(canvas.winfo_width() - 18, 300)
                     ch = max(canvas.winfo_height() - 18, 300)
-                    scale = min(cw / page.rect.width, ch / page.rect.height, 1.8)
+                    scale = min(cw / page.rect.width, ch / page.rect.height, 1.8) * self.zoom
                     pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
                 im = Image.frombytes('RGB', (pix.width, pix.height), pix.samples)
                 photo = ImageTk.PhotoImage(im)
                 self.photos.append(photo)
-                canvas.create_image(canvas.winfo_width() // 2, canvas.winfo_height() // 2,
-                                    image=photo, anchor='center')
+                center_x, center_y = canvas.winfo_width() // 2, canvas.winfo_height() // 2
+                canvas.create_image(center_x, center_y, image=photo, anchor='center')
+                if canvas is self.panels[0]:
+                    self.render_info = (center_x - pix.width / 2,
+                                        center_y - pix.height / 2, scale)
         except Exception as exc:
             self.status.set('Önizleme hatası: ' + str(exc))
 

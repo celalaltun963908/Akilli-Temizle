@@ -1,4 +1,4 @@
-"""Akıllı Temizle V2.2 — yakınlaştırma ve güvenli alan seçimi."""
+"""Akıllı Temizle V2.3 — yakınlaştırma, kaydırma ve güvenli alan seçimi."""
 import json
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -19,7 +19,9 @@ class App:
         self.render_info = None
         self.drag_start = None
         self.selection_rectangle = None
-        root.title('Akıllı Temizle V2.2 | Güvenli PDF Temizleme')
+        self.pan_start = None
+        self.pan_offset = [0, 0]
+        root.title('Akıllı Temizle V2.3 | Güvenli PDF Temizleme')
         root.geometry('1180x780')
         root.minsize(1000, 560)
         root.configure(bg='#f3f6fc')
@@ -52,21 +54,22 @@ class App:
         self.select_mode = tk.BooleanVar(value=False)
         ttk.Checkbutton(controls, text='Fareyle Watermark seç', variable=self.select_mode).pack(side='left', padx=12)
 
-        frame = ttk.Frame(root, padding=10)
+        ttk.Label(root, text='Kaydırmak için sayfayı fareyle sürükleyin. Filigran seçmek için kutucuğu işaretleyin.', padding=(12, 2)).pack(anchor='w')
+        frame = ttk.Frame(root, padding=5)
         frame.pack(fill='both', expand=True)
         self.panels = []
         for title in ('Orijinal PDF', 'Temizlenmiş PDF'):
             pane = ttk.Frame(frame)
-            pane.pack(side='left', fill='both', expand=True, padx=5)
+            pane.pack(side='left', fill='both', expand=True, padx=2)
             ttk.Label(pane, text=title, font=('Arial', 12, 'bold')).pack()
             canvas = tk.Canvas(pane, bg='#e9edf1', highlightthickness=0)
             canvas.pack(fill='both', expand=True, pady=6)
             canvas.bind('<Configure>', lambda _event: self.show())
+            canvas.bind('<ButtonPress-1>', self.start_selection)
+            canvas.bind('<B1-Motion>', self.drag_selection)
+            canvas.bind('<ButtonRelease-1>', self.end_selection)
+            canvas.bind('<MouseWheel>', self.mouse_zoom)
             self.panels.append(canvas)
-        original = self.panels[0]
-        original.bind('<ButtonPress-1>', self.start_selection)
-        original.bind('<B1-Motion>', self.drag_selection)
-        original.bind('<ButtonRelease-1>', self.end_selection)
         ttk.Label(root, text=('Güvenli mod: Yalnızca PDF Watermark açıklamaları kaldırılır. '
                               'Diğer filigran türleri değiştirilmez.'),
                   foreground='#a04a00', padding=10).pack(anchor='w')
@@ -90,6 +93,9 @@ class App:
                     raise ValueError('Şifreli PDF desteklenmiyor.')
                 count, detected = len(doc), mode_for(doc)
             self.src, self.out, self.page = Path(filename), None, 0
+            self.pan_offset = [0, 0]
+            self.zoom = 1.0
+            self.zoom_label.config(text='%100')
             self.status.set(f'{self.src.name} · {count} sayfa · Algılanan yöntem: {detected}')
             self.show()
         except Exception as exc:
@@ -209,15 +215,27 @@ class App:
     def set_zoom(self, amount):
         self.zoom = max(0.5, min(3.0, round(self.zoom + amount, 2)))
         self.zoom_label.config(text=f'%{round(self.zoom * 100)}')
+        self.pan_offset = [0, 0]
         self.show()
 
     def reset_zoom(self):
         self.zoom = 1.0
         self.zoom_label.config(text='%100')
+        self.pan_offset = [0, 0]
         self.show()
 
+    def mouse_zoom(self, event):
+        if self.src is not None:
+            self.set_zoom(0.25 if event.delta > 0 else -0.25)
+
     def start_selection(self, event):
-        if not self.select_mode.get() or self.src is None:
+        if self.src is None:
+            return
+        if not self.select_mode.get():
+            self.pan_start = (event.x, event.y)
+            event.widget.config(cursor='fleur')
+            return
+        if event.widget is not self.panels[0]:
             return
         self.drag_start = (event.x, event.y)
         canvas = self.panels[0]
@@ -227,12 +245,27 @@ class App:
             event.x, event.y, event.x, event.y, outline='#E03535', width=2, dash=(5, 3))
 
     def drag_selection(self, event):
+        if self.pan_start is not None:
+            dx, dy = event.x - self.pan_start[0], event.y - self.pan_start[1]
+            self.pan_start = (event.x, event.y)
+            self.pan_offset[0] += dx
+            self.pan_offset[1] += dy
+            for canvas in self.panels:
+                canvas.move('page_image', dx, dy)
+            if self.render_info is not None:
+                ox, oy, scale = self.render_info
+                self.render_info = (ox + dx, oy + dy, scale)
+            return
         if self.drag_start is None or self.selection_rectangle is None:
             return
         x, y = self.drag_start
         self.panels[0].coords(self.selection_rectangle, x, y, event.x, event.y)
 
     def end_selection(self, event):
+        if self.pan_start is not None:
+            self.pan_start = None
+            event.widget.config(cursor='')
+            return
         if self.drag_start is None:
             return
         x0, y0 = self.drag_start
@@ -257,7 +290,7 @@ class App:
                                     'Seçilen alanda doğrulanmış PDF Watermark açıklaması yok. Hiçbir içerik silinmedi.')
                 return
             if not messagebox.askyesno('Seçimi onaylayın',
-                    f'{len(matches)} doğrulanmış Watermark açıklaması bulundu.\\n'
+                    f'{len(matches)} doğrulanmış Watermark açıklaması bulundu.\n'
                     'Yalnızca bu açıklamalar kaldırılsın mı?'):
                 return
             dest = filedialog.asksaveasfilename(
@@ -281,6 +314,7 @@ class App:
             return
         with fitz.open(self.src) as doc:
             self.page = max(0, min(len(doc) - 1, self.page + amount))
+        self.pan_offset = [0, 0]
         self.show()
 
     def show(self):
@@ -306,8 +340,9 @@ class App:
                 im = Image.frombytes('RGB', (pix.width, pix.height), pix.samples)
                 photo = ImageTk.PhotoImage(im)
                 self.photos.append(photo)
-                center_x, center_y = canvas.winfo_width() // 2, canvas.winfo_height() // 2
-                canvas.create_image(center_x, center_y, image=photo, anchor='center')
+                center_x = canvas.winfo_width() // 2 + self.pan_offset[0]
+                center_y = canvas.winfo_height() // 2 + self.pan_offset[1]
+                canvas.create_image(center_x, center_y, image=photo, anchor='center', tags='page_image')
                 if canvas is self.panels[0]:
                     self.render_info = (center_x - pix.width / 2,
                                         center_y - pix.height / 2, scale)
